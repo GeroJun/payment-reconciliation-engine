@@ -1,9 +1,5 @@
--- Database schema for Payment Reconciliation Engine
-
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Transactions table
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     source_account_id UUID NOT NULL,
@@ -15,7 +11,6 @@ CREATE TABLE IF NOT EXISTS transactions (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Idempotency keys table
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     idempotency_key VARCHAR(255) UNIQUE NOT NULL,
@@ -23,7 +18,6 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Ledger entries table (double-entry bookkeeping)
 CREATE TABLE IF NOT EXISTS ledger_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     transaction_id UUID REFERENCES transactions(id),
@@ -34,7 +28,6 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Reconciliation reports table
 CREATE TABLE IF NOT EXISTS reconciliation_reports (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     account_id UUID NOT NULL,
@@ -47,7 +40,6 @@ CREATE TABLE IF NOT EXISTS reconciliation_reports (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_transactions_source ON transactions(source_account_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_destination ON transactions(destination_account_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
@@ -62,7 +54,6 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_key ON idempotency_keys(idempotency_k
 CREATE INDEX IF NOT EXISTS idx_reconciliation_account ON reconciliation_reports(account_id);
 CREATE INDEX IF NOT EXISTS idx_reconciliation_period ON reconciliation_reports(period_start, period_end);
 
--- Trigger to update updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
