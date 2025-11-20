@@ -19,7 +19,7 @@ app.use(cors());
 app.use(express.json());
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://reconciliation_user:reconciliation_password@localhost:5432/reconciliation_engine',
+  connectionString: process.env.DATABASE_URL,
   max: 20
 });
 
