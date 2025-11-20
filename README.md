@@ -5,14 +5,14 @@
 ---
 
 ## Table of Contents
-
-- [Features](#features)
-- [Architecture Overview](#architecture-overview)
-- [Getting Started](#getting-started)
-- [Usage](#usage)
-- [Project Structure](#project-structure)
-- [Contributing](#contributing)
-- [License](#license)
+- Features
+- Architecture Overview
+- Project Showcase
+- Getting Started
+- Usage
+- Project Structure
+- Contributing
+- License
 
 ---
 
@@ -33,6 +33,35 @@
 - **Database:** PostgreSQL with initialization scripts (`init.sql`) for ledgers and reconciliation tables.
 - **APIs:** RESTful routes for ingestion and reconciliation triggers.
 - **Containerization:** Isolated, reproducible development and test environments via Docker.
+
+---
+
+## 📸 Project Showcase
+
+### Server Running
+<img width="823" height="638" alt="image" src="https://github.com/user-attachments/assets/dee0b5f1-ed22-4e0e-8fbb-e9c8541160f2" />
+
+*The health check working confirms your server is running*
+
+### Create new transaction
+<img width="853" height="771" alt="image" src="https://github.com/user-attachments/assets/4199ac93-66ca-416a-8366-68c0a758c0ca" />
+
+*Created a new transaction based on all the required IDs to ensure security*
+
+### Test Idempotency
+<img width="825" height="775" alt="image" src="https://github.com/user-attachments/assets/12369215-6497-4ab8-bc01-fe0edcf1c0c3" />
+
+*Idempotency key matching, it detects if there are duplicates.*
+
+### Get Account Balance
+<img width="837" height="344" alt="image" src="https://github.com/user-attachments/assets/f840c5df-4995-480c-9aca-11f13c7d0675" />
+
+*Check the current balance of an account after processing transactions.*
+
+### Get Ledger History
+<img width="907" height="848" alt="image" src="https://github.com/user-attachments/assets/d9e32245-66e3-45b0-ba3e-a8bba24470f1" />
+
+*Retrieve the transaction history for an account.*
 
 ---
 
