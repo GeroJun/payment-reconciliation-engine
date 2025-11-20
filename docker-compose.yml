@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: reconciliation-db
+    environment:
+      POSTGRES_DB: reconciliation_engine
+      POSTGRES_USER: reconciliation_user
+      POSTGRES_PASSWORD: reconciliation_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/database/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reconciliation_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reconciliation_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reconciliation-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://reconciliation_user:reconciliation_password@postgres:5432/reconciliation_engine
+      NODE_ENV: development
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+    networks:
+      - reconciliation_network
+    command: npm start
+
+  redis:
+    image: redis:7-alpine
+    container_name: reconciliation-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - reconciliation_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  reconciliation_network:
+    driver: bridge
