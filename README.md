@@ -121,7 +121,7 @@
 ├── Dockerfile          # Node.js app container
 ├── docker-compose.yml  # Orchestrates app + PostgreSQL
 ├── package.json        # Dependencies and NPM scripts
-├── .env                # Environment variables (example template)
+├── .env                # Environment variables 
 └── README.md           # Project documentation
 ```
 
