@@ -17,32 +17,16 @@ A Node.js backend project built to understand payment systems, distributed archi
 - The tradeoffs between sync vs async APIs
 - How to design APIs that handle retries safely
 
----
-
-## Why I Built This
-
-While learning about payment systems in my Systems Design course, I realized most tutorials skip the hard problems:
-
-- **What happens if a webhook is retried?** Users get charged twice (bad)
-- **How do you know if account balances are correct?** You need an audit trail
-- **Why does the API return immediately if processing takes 5 seconds?** Because users shouldn't wait
-
-This project explores those questions.
-
----
-
 ## Features
 
-- **Real-Time Reconciliation:** Detects and resolves inconsistencies across payment transactions
-- **Idempotency Handling:** Ensures repeat operations (e.g., webhook retries) don't create duplicates using Redis cache
-- **Double-Entry Ledger:** Follows accounting best practices — every transaction creates two entries (debit + credit)
-- **Async Processing:** AWS SQS for scalable, background transaction processing
-- **Health Checks:** Readiness/liveness probes for Kubernetes-style orchestration
-- **Docker Support:** Local deployment with Docker Compose
-
----
-
-## Architecture
+- **Real-Time Reconciliation:** Detects and resolves inconsistencies across payment transactions instantly.
+- **Idempotency Handling:** Ensures repeat operations (e.g., webhook retries) do not create duplicates using Redis cache.
+- **Double-Entry Ledger:** Follows best practices for accounting and transaction auditing.
+- **Discrepancy Detection:** Flags missing, mismatched, or erroneous transactions.
+- **Asynchronous Processing:** AWS SQS integration for distributed, scalable transaction processing.
+- **Cloud-Native Design:** Built for AWS with monitoring, health checks, and readiness probes.
+- **Docker Support:** Rapid local deployment and isolation using Docker & Docker Compose.
+- **Configurable Schema:** Tweak the core accounting and transaction schema to fit enterprise needs.
 
 ### High-Level Design
 
@@ -81,20 +65,26 @@ This project explores those questions.
               └──────────────────┘
 ```
 
-### Key Design Decisions
+### Components
 
-**1. Async Processing with SQS**
+| Component | Purpose | AWS Service |
+|-----------|---------|------------|
+| **API Server** | Handles HTTP requests, validates input, manages auth | Application |
+| **SQS Queue** | Async transaction processing, decouples API from workers | AWS SQS (FIFO) |
+| **Redis Cache** | Idempotency key storage, fast duplicate detection | ElastiCache/local |
+| **PostgreSQL** | Primary database for ledger, transactions, audit logs | RDS/local |
+| **Background Workers** | Processes SQS messages, updates database | Lambda/EC2 |
+| **CloudWatch** | Monitoring, logging, metrics | AWS CloudWatch |
 
-*The Problem:* Processing transactions takes time. API shouldn't block waiting.
+---
 
-*My Solution:* Return 202 ACCEPTED immediately. Publish message to SQS. Workers process in background.
+### Key Endpoints
 
-*Tradeoff:* Client needs to poll for status (more complex), but API responds in ~50ms regardless.
-
+#### Transaction Processing (Async via SQS)
 ```bash
-# Client: Submit transaction, get polling URL immediately
+# 1. Submit transaction (returns immediately with 202)
 curl -X POST http://localhost:3000/api/v1/transactions \
-  -H "Authorization: Bearer demo-token" \
+  -H "Authorization: Bearer demo-token-for-testing" \
   -H "Content-Type: application/json" \
   -d '{
     "transaction": {
@@ -105,64 +95,89 @@ curl -X POST http://localhost:3000/api/v1/transactions \
     "idempotencyKey": "unique-key-12345"
   }'
 
-# Response: 202 ACCEPTED (immediate)
+# Response: 202 ACCEPTED
 {
   "status": "ACCEPTED",
   "idempotencyKey": "unique-key-12345",
   "messageId": "msg-id-xyz",
-  "pollUrl": "/api/v1/transactions/status/unique-key-12345"
+  "pollUrl": "/api/v1/transactions/status/unique-key-12345",
+  "expiresAt": "2026-01-09T23:13:00.000Z"
 }
 
-# Client: Poll for completion
+# 2. Poll for completion
 curl http://localhost:3000/api/v1/transactions/status/unique-key-12345 \
-  -H "Authorization: Bearer demo-token"
+  -H "Authorization: Bearer demo-token-for-testing"
 
-# Response: PROCESSING or COMPLETED
+# Response: Processing...
+{ "status": "PROCESSING", "idempotencyKey": "unique-key-12345" }
+
+# Response: Complete
+{
+  "status": "COMPLETED",
+  "result": {
+    "id": 1,
+    "source_account_id": "account-123",
+    "destination_account_id": "account-456",
+    "amount": 100.00,
+    "status": "COMPLETED",
+    "created_at": "2026-01-09T02:13:00.000Z"
+  }
+}
 ```
 
-**2. Idempotency with Redis Cache**
-
-*The Problem:* Payment providers retry webhooks. Without idempotency, you charge users twice (catastrophic).
-
-*My Solution:* Cache transaction results by idempotency key. Return cached result for duplicates.
-
-*Why it matters:* Banks have solved this for 500 years. It's critical for financial systems.
-
+#### Queue Monitoring
 ```bash
-# Request 1: New transaction
-{
-  "transaction": {...},
-  "idempotencyKey": "tx-001"
-}
-# Response: 202 ACCEPTED (processed)
+# Check SQS queue stats
+curl http://localhost:3000/api/v1/queue/stats \
+  -H "Authorization: Bearer demo-token-for-testing"
 
-# Request 2: Same idempotencyKey (duplicate)
+# Response
 {
-  "transaction": {...},
-  "idempotencyKey": "tx-001"
+  "queueUrl": "https://sqs.us-east-1.amazonaws.com/account/queue.fifo",
+  "messageCount": 5,
+  "inFlightCount": 2,
+  "visibilityTimeout": 60,
+  "isFifo": true,
+  "contentDeduplication": true,
+  "timestamp": "2026-01-09T02:13:00.000Z"
 }
-# Response: 200 OK (returns cached result, NOT a new message)
 ```
 
-**3. Double-Entry Ledger**
+#### Idempotency & Cache
+```bash
+# Check cache stats
+curl http://localhost:3000/api/v1/cache/stats \
+  -H "Authorization: Bearer demo-token-for-testing"
 
-*The Problem:* How do you verify $100 transferred correctly? How do you catch errors?
+# Response
+{
+  "connected": true,
+  "totalKeys": 10,
+  "prefix": "idempotency:",
+  "defaultTtl": 86400,
+  "memoryUsage": "2.5K",
+  "timestamp": "2026-01-09T02:13:00.000Z"
+}
+```
 
-*My Solution:* Every transaction creates two ledger entries:
-- Debit source account: -$100
-- Credit destination account: +$100
+#### Health & Readiness Checks
+```bash
+# Liveness probe
+curl http://localhost:3000/api/v1/health
 
-Then: `Balance = Sum of all ledger entries`
+# Readiness probe (checks all dependencies)
+curl http://localhost:3000/api/v1/ready
 
-If balance doesn't match, you know something's wrong.
-
-**4. Health & Readiness Probes**
-
-*The Problem:* Kubernetes needs to know when your app is actually ready to handle traffic.
-
-*My Solution:* 
-- `/api/v1/health` — Simple "are you running?" check
-- `/api/v1/ready` — Complex check: database + cache + queue all working?
+# Response
+{
+  "status": "READY",
+  "components": {
+    "database": "ready",
+    "cache": "ready",
+    "queue": "ready"
+  }
+}
+```
 
 ---
 
@@ -195,60 +210,43 @@ If balance doesn't match, you know something's wrong.
 
 ---
 
-## Getting Started
+## Usage
 
-### Prerequisites
+### Basic Workflow
 
-- Node.js v18+
-- Docker & Docker Compose
-- PostgreSQL (included in Docker Compose)
+1. **Submit Transactions:**
+   ```bash
+   curl -X POST http://localhost:3000/api/v1/transactions \
+     -H "Authorization: Bearer demo-token-for-testing" \
+     -H "Content-Type: application/json" \
+     -d '{ "transaction": {...}, "idempotencyKey": "..." }'
+   ```
 
-### Local Setup
+2. **Poll for Completion:**
+   ```bash
+   curl http://localhost:3000/api/v1/transactions/status/:idempotencyKey \
+     -H "Authorization: Bearer demo-token-for-testing"
+   ```
 
-```bash
-# Clone repo
-git clone https://github.com/GeroJun/payment-reconciliation-engine.git
-cd payment-reconciliation-engine
+3. **Check Account Balance:**
+   ```bash
+   curl http://localhost:3000/api/v1/accounts/:accountId/balance \
+     -H "Authorization: Bearer demo-token-for-testing"
+   ```
 
-# Copy environment template
-cp .env.example .env
+4. **Run Reconciliation:**
+   ```bash
+   curl -X POST http://localhost:3000/api/v1/accounts/:accountId/reconcile \
+     -H "Authorization: Bearer demo-token-for-testing" \
+     -H "Content-Type: application/json" \
+     -d '{ "startDate": "2026-01-01", "endDate": "2026-01-31" }'
+   ```
 
-# Start with Docker Compose
-docker-compose up --build
-
-# Or run locally
-npm install
-npm run start
-```
-
----
-
-## API Endpoints
-
-### Transactions
-
-- `POST /api/v1/transactions` — Submit transaction async
-- `GET /api/v1/transactions/status/:idempotencyKey` — Poll for completion
-- `POST /api/v1/transactions/:id/refund` — Process refund
-
-### Accounts
-
-- `GET /api/v1/accounts/:accountId/balance` — Get current balance
-- `GET /api/v1/accounts/:accountId/ledger` — Get transaction history
-- `GET /api/v1/accounts/:accountId/audit-trail` — Get audit log
-
-### Reconciliation
-
-- `POST /api/v1/accounts/:accountId/reconcile` — Trigger reconciliation
-- `GET /api/v1/accounts/:accountId/reconciliation-history` — Get past reconciliations
-- `GET /api/v1/accounts/:accountId/reconciliation-difference` — Get balance differences
-
-### Monitoring
-
-- `GET /api/v1/queue/stats` — Check SQS queue depth
-- `GET /api/v1/cache/stats` — Check Redis cache health
-- `GET /api/v1/health` — Liveness probe
-- `GET /api/v1/ready` — Readiness probe (checks all dependencies)
+5. **Monitor System Health:**
+   ```bash
+   curl http://localhost:3000/api/v1/ready \
+     -H "Authorization: Bearer demo-token-for-testing"
+   ```
 
 ---
 
@@ -257,12 +255,12 @@ npm run start
 ```
 .
 ├── src/
-│   ├── controllers/              # Route handlers
+│   ├── controllers/           # Route/controller logic
 │   ├── services/
 │   │   ├── transactionProcessor.js      # Core transaction logic
 │   │   ├── reconciliationService.js     # Reconciliation engine
 │   │   ├── ledgerManager.js             # Double-entry ledger
-│   │   ├── sqsProducer.js               # SQS integration
+│   │   ├── sqsProducer.js               # SQS queue integration
 │   │   └── idempotencyCache.js          # Redis cache layer
 │   ├── routes/
 │   │   └── routes.js                    # Express route definitions
@@ -270,53 +268,12 @@ npm run start
 │       ├── validation.js     # Input validation
 │       ├── auth.js           # Auth middleware
 │       └── logger.js         # Structured logging
-├── init.sql                  # PostgreSQL schema
-├── Dockerfile                # Container config
-├── docker-compose.yml        # Local dev setup
-├── package.json              # Dependencies
+├── init.sql                  # PostgreSQL schema & migrations
+├── Dockerfile                # Node.js app container
+├── docker-compose.yml        # Orchestrates app + DB + Redis
+├── package.json              # Dependencies & scripts
+├── .env.example              # Environment variables template
 └── README.md                 # This file
 ```
 
 ---
-
-## What I Didn't Build (Yet)
-
-These are areas for future learning:
-
-- Full AWS integration (using local mocks for development)
-- Production-grade error recovery and Dead Letter Queue handling
-- Load testing and performance benchmarks
-- Distributed tracing and advanced monitoring
-- Message encryption and advanced security patterns
-
-These would be natural next steps for understanding production systems at scale.
-
----
-
-## Interview Talking Points
-
-If you're curious about the design decisions:
-
-**Async Processing:**
-> "I chose async SQS processing because synchronous APIs create a bottleneck. If processing takes 5 seconds, every request waits 5 seconds. With SQS, the API responds in 50ms and workers process in the background. Tradeoff: client complexity."
-
-**Idempotency:**
-> "This prevents duplicate charges. If a payment provider retries a webhook with the same ID, we return the cached result instead of processing twice. It's why payment systems are reliable."
-
-**Double-Entry Ledger:**
-> "Every transaction creates two ledger entries (debit + credit). This makes it impossible to lose money — balance always equals sum of entries. It's how banks work."
-
-**Health Checks:**
-> "The `/api/v1/ready` endpoint checks database, cache, and queue. Kubernetes uses this to know when the app is safe to receive traffic. Without it, requests fail during startup."
-
----
-
-## Contributing
-
-Feel free to open issues or PRs if you find bugs or have ideas!
-
----
-
-## License
-
-MIT
