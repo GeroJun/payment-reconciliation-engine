@@ -1,6 +1,6 @@
 # Payment Reconciliation Engine
 
-A Node.js backend project built to understand payment systems, distributed architecture, and AWS services. This system demonstrates core concepts like async processing, idempotency, and double-entry ledgers — patterns used in production payment systems.
+A Node.js backend project built to understand payment systems, distributed architecture, and AWS services. This system demonstrates core concepts like async processing, idempotency, and double-entry ledgers, which are patterns used in production payment systems.
 
 ## What I Built
 
